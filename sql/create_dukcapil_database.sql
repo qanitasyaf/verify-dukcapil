@@ -1,6 +1,6 @@
 -- ===== DUKCAPIL DATABASE SETUP SCRIPT =====
 -- File: create_dukcapil_database.sql
--- Run: psql -U postgres -f create_dukcapil_database.sql
+-- Run: psql -U sonar -f tmp/create_dukcapil_database.sql
 
 -- 1. Create Database
 CREATE DATABASE dukcapil_ktp;
