@@ -1,0 +1,125 @@
+pipeline {
+  agent any
+  tools {
+    // Maven dan JDK mungkin tidak diperlukan jika hanya membangun Docker image dari Dockerfile
+    // Namun, jika Dockerfile Anda bergantung pada artefak Maven yang sudah dibangun,
+    // Anda mungkin perlu menyertakan tahap build Maven sebelumnya.
+    // Untuk pipeline ini, kita asumsikan Dockerfile dapat dibangun secara independen.
+  }
+
+  environment {
+    BACKEND_IMAGE_NAME = 'backend-secure-onboarding-system'
+    FRONTEND_IMAGE_NAME = 'frontend-secure-onboarding-system'
+    VERIFY_DUKCAPIL_IMAGE_NAME = 'verify-dukcapil-app'
+
+    GCP_PROJECT_ID = 'final-project-bootcamp'               
+    GCR_HOSTNAME = 'gcr.io'                              
+  }
+
+  stages {
+    stage('Checkout All Repositories') {
+      steps {
+        script {
+          dir('backend-repo') {
+            git url: 'https://github.com/bostang/backend-secure-onboarding-system', branch: 'develop'
+          }
+
+          // Checkout repositori frontend ke sub-direktori 'frontend-repo'
+          dir('frontend-repo') {
+            git url: 'https://github.com/alvarolt17/frontend-secure-onboarding-system.git', branch: 'main' // Asumsi branch 'main' atau sesuaikan
+          }
+
+          // Checkout repositori ops (jika tidak ada Dockerfile, ini hanya untuk ketersediaan kode)
+          dir('ops-repo') {
+            git url: 'https://github.com/qanitasyaf/ops-secure-onboarding-system', branch: 'main' // Asumsi branch 'main' atau sesuaikan
+          }
+
+          // Checkout repositori verify-dukcapil (jika tidak ada Dockerfile, ini hanya untuk ketersediaan kode)
+          dir('verify-dukcapil-repo') {
+            git url: 'https://github.com/RizkiRahmann/verify-dukcapil', branch: 'main' // Asumsi branch 'main' atau sesuaikan
+          }
+        }
+      }
+    }
+
+    stage('Docker Build and Push Backend') {
+      steps {
+        script {
+          def imageTag = "${env.BUILD_NUMBER}"
+          def fullImageName = "${GCR_HOSTNAME}/${GCP_PROJECT_ID}/${BACKEND_IMAGE_NAME}:${imageTag}"
+
+          echo "Membangun Docker image Backend: ${fullImageName}"
+
+          // Masuk ke direktori repositori backend sebelum membangun Docker image
+          dir('backend-repo') {
+            docker.withRegistry("https://${GCR_HOSTNAME}", 'gcr-credential-id') { // <<< PENTING: GANTI 'gcr-credential-id'
+              def appImage = docker.build("${fullImageName}", "-f Dockerfile .") // Bangun image menggunakan Dockerfile di direktori ini
+              appImage.push() // Dorong image yang dibangun ke GCR
+              echo "Docker image Backend ${fullImageName} berhasil dibangun dan didorong ke GCR."
+            }
+          }
+          // Simpan nama image lengkap dalam variabel lingkungan spesifik
+          env.BACKEND_DEPLOY_IMAGE = fullImageName
+        }
+      }
+    }
+
+    stage('Docker Build and Push Frontend') {
+      steps {
+        script {
+          def imageTag = "${env.BUILD_NUMBER}"
+          def fullImageName = "${GCR_HOSTNAME}/${GCP_PROJECT_ID}/${FRONTEND_IMAGE_NAME}:${imageTag}"
+
+          echo "Membangun Docker image Frontend: ${fullImageName}"
+
+          // Masuk ke direktori repositori frontend sebelum membangun Docker image
+          dir('frontend-repo') {
+            docker.withRegistry("https://${GCR_HOSTNAME}", 'gcr-credential-id') { // <<< PENTING: GANTI 'gcr-credential-id'
+              def appImage = docker.build("${fullImageName}", "-f Dockerfile .") // Bangun image menggunakan Dockerfile di direktori ini
+              appImage.push() // Dorong image yang dibangun ke GCR
+              echo "Docker image Frontend ${fullImageName} berhasil dibangun dan didorong ke GCR."
+            }
+          }
+          // Simpan nama image lengkap dalam variabel lingkungan spesifik
+          env.FRONTEND_DEPLOY_IMAGE = fullImageName
+        }
+      }
+    }
+
+    // --- Tambahkan tahap serupa untuk 'verify-dukcapil' jika diperlukan ---
+    /*
+    stage('Docker Build and Push Verify Dukcapil') {
+      steps {
+        script {
+          def imageTag = "${env.BUILD_NUMBER}"
+          def fullImageName = "${GCR_HOSTNAME}/${GCP_PROJECT_ID}/${VERIFY_DUKCAPIL_IMAGE_NAME}:${imageTag}"
+
+          echo "Membangun Docker image Verify Dukcapil: ${fullImageName}"
+
+          dir('verify-dukcapil-repo') {
+            docker.withRegistry("https://${GCR_HOSTNAME}", 'gcr-credential-id') {
+              def appImage = docker.build("${fullImageName}", "-f Dockerfile .")
+              appImage.push()
+              echo "Docker image Verify Dukcapil ${fullImageName} berhasil dibangun dan didorong ke GCR."
+            }
+          }
+          env.VERIFY_DUKCAPIL_DEPLOY_IMAGE = fullImageName
+        }
+      }
+    }
+    */
+  }
+
+  post {
+    success {
+      echo "Pipeline Docker Build berhasil 🚀"
+    }
+    failure {
+      echo "Pipeline Docker Build gagal 💥"
+    }
+    always {
+      // Bersihkan workspace setelah eksekusi pipeline
+      cleanWs()
+    }
+  }
+}

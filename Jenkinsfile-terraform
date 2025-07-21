@@ -1,0 +1,70 @@
+pipeline {
+    // ... (Bagian awal pipeline Anda seperti agent, tools) ...
+
+    environment {
+        // ... (Variabel lingkungan sebelumnya seperti GCP_PROJECT_ID, GCR_HOSTNAME) ...
+        GCP_PROJECT_ID = 'model-parsec-465503-p3'
+        TF_GCP_KEY_FILE_PATH = '' // Variabel untuk jalur file kredensial GCP Terraform
+        TF_BACKEND_BUCKET = 'terraform-state-secure-onboarding' // Nama bucket GCS untuk Terraform state
+        TERRAFORM_DIR = 'terraform' // Direktori tempat repositori Terraform di-checkout
+
+        // Variabel ini akan berisi full path image Docker yang baru saja dibangun
+        // dan akan diteruskan sebagai input ke Terraform.
+        TF_APP_IMAGE = ""
+    }
+
+    stages {
+        // ... (Tahap 'Checkout Frontend' dan 'Docker Build and Push Frontend') ...
+        // Penting: Di akhir tahap 'Docker Build and Push Frontend', pastikan
+        // env.TF_APP_IMAGE telah diisi dengan fullImageName.
+        // Contoh: env.TF_APP_IMAGE = fullImageName (seperti yang ada di jawaban sebelumnya)
+
+        stage('Checkout Terraform') {
+            steps {
+                // Meng-clone repositori Terraform ke sub-direktori tertentu
+                // Ini penting agar tidak konflik dengan kode aplikasi frontend Anda
+                dir("${TERRAFORM_DIR}") { // Menggunakan 'dir' untuk menjalankan perintah di direktori ini
+                    git url: 'https://github.com/qanitasyaf/ops-secure-onboarding-system', branch: 'main' // Ganti 'main' dengan branch yang Anda gunakan
+                }
+            }
+        }
+
+        stage('Terraform Apply GKE Deployment') {
+            steps {
+                script {
+                    // Menggunakan block 'withCredentials' untuk mengekspos
+                    // kredensial Service Account GCP Anda (JSON key) sebagai file sementara.
+                    withCredentials([file(credentialsId: 'gcp-terraform-credential', variable: 'TF_GCP_KEY_FILE_PATH')]) {
+                        // Memastikan semua perintah Terraform dijalankan di dalam direktori repositori Terraform Anda
+                        dir("${TERRAFORM_DIR}") {
+                            echo "Mengautentikasi gcloud CLI dengan Service Account Terraform..."
+                            // Mengautentikasi gcloud CLI menggunakan Service Account dari Secret File
+                            sh "gcloud auth activate-service-account --key-file=${TF_GCP_KEY_FILE_PATH}"
+                            sh "gcloud config set project ${env.GCP_PROJECT_ID}" // Mengatur proyek GCP
+
+                            echo "Menginisialisasi Terraform..."
+                            // Menjalankan 'terraform init' untuk menginisialisasi backend (GCS)
+                            // dan mengunduh provider yang dibutuhkan.
+                            sh "terraform init -backend-config=bucket=${TF_BACKEND_BUCKET}"
+
+                            echo "Membuat rencana Terraform untuk deployment GKE..."
+                            // Menjalankan 'terraform plan'.
+                            // Variabel 'app_image' diteruskan ke Terraform sebagai input.
+                            // Pastikan Terraform Anda memiliki definisi variabel 'app_image'.
+                            sh "terraform plan -var='app_image=${env.TF_APP_IMAGE}' -out=tfplan"
+
+                            echo "Menerapkan perubahan Terraform ke GKE..."
+                            // Menjalankan 'terraform apply' untuk menerapkan perubahan sesuai rencana.
+                            // '-auto-approve' akan otomatis menyetujui rencana tanpa intervensi manual.
+                            sh "terraform apply -auto-approve tfplan"
+
+                            echo "Deployment GKE melalui Terraform berhasil!"
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ... (Bagian 'post' pipeline) ...
+}

@@ -1,28 +1,30 @@
-# Assuming your Dockerfile starts with this base image
-FROM docker.io/jenkins/jenkins:lts
+# Dockerfile di ./jenkins
+FROM jenkins/jenkins:lts
 
-# Switch to root user to perform system-level installations
-# The jenkins/jenkins:lts image often switches to 'jenkins' user,
-# so we explicitly become root for apt operations.
 USER root
 
-# Step 1: Update apt and install necessary packages including curl and gnupg
-# The previous log showed 'cur' which might have been truncated, ensuring 'curl' and 'gnupg' are fully listed.
+# Install Docker CLI (from previous solution)
 RUN apt-get update && \
-    apt-get install -y apt-transport-https ca-certificates curl gnupg && \
+    apt-get install -y --no-install-recommends docker.io && \
     rm -rf /var/lib/apt/lists/*
 
-# Step 2: Add HashiCorp GPG key and repository, then install Terraform
-# Added --batch to the gpg --dearmor command to prevent TTY interaction issues.
-# RUN curl -fsSL https://apt.releases.hashicorp.com/gpg | gpg --dearmor --batch -o /usr/share/keyrings/hashicorp-archive-keyring.gpg && \
-#     echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" > /etc/apt/sources.list.d/hashicorp.list && \
-#     apt-get update && \
-#     apt-get install -y terraform
+# Install Google Cloud CLI
+ENV CLOUDSDK_CORE_DISABLE_PROMPTS=1
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    apt-transport-https ca-certificates gnupg \
+    && echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | tee -a /etc/apt/sources.list.d/google-cloud-sdk.list \
+    && curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key --keyring /usr/share/keyrings/cloud.google.gpg add - \
+    && apt-get update && apt-get install -y google-cloud-sdk \
+    && rm -rf /var/lib/apt/lists/*
 
-# Switch back to the 'jenkins' user if subsequent operations or the container's
-# entrypoint expect to run as this user. This is good practice for security.
+# Install Terraform CLI
+# Mendapatkan versi Terraform terbaru (sesuaikan jika Anda butuh versi spesifik)
+# Contoh untuk Terraform 1.x
+RUN curl -LO https://releases.hashicorp.com/terraform/1.9.0/terraform_1.9.0_linux_amd64.zip \
+    && unzip terraform_1.9.0_linux_amd64.zip -d /usr/local/bin/ \
+    && rm terraform_1.9.0_linux_amd64.zip
+
+# Tambahkan jenkins user ke grup docker (jika belum)
+RUN usermod -aG docker jenkins
+
 USER jenkins
-
-# ... (rest of your Dockerfile, if any, for installing other tools or setting up your application)
-
-
